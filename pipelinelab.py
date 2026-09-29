@@ -49,17 +49,18 @@ def load():
     return state
 
 
-def spend(state, key, amount=1):
+def spend(state, key, amount=1, persist=True):
     count = state.setdefault("usage", {}).get(key, 0)
     if count + amount > LIMITS[key]:
         raise LabError(f"Lab {key} cap reached. Retain state; do not reset limits.")
     state["usage"][key] = count + amount
-    save(state)
+    if persist:
+        save(state)
 
 
-def aws(state, service, operation, payload=None, extra=None, cleanup=False):
+def aws(state, service, operation, payload=None, extra=None, cleanup=False, persist=True):
     if not cleanup:
-        spend(state, "calls")
+        spend(state, "calls", persist=persist)
     command = ["aws", service, operation, "--region", state["region"], "--output", "json",
                "--no-cli-pager", "--cli-connect-timeout", "10", "--cli-read-timeout", "40"]
     if payload is not None:
@@ -78,14 +79,15 @@ def aws(state, service, operation, payload=None, extra=None, cleanup=False):
     return json.loads(result.stdout) if result.stdout.strip() else {}
 
 
-def identity(state, cleanup=False):
-    got = aws(state, "sts", "get-caller-identity", cleanup=cleanup)
+def identity(state, cleanup=False, persist=True):
+    got = aws(state, "sts", "get-caller-identity", cleanup=cleanup, persist=persist)
     if got.get("Arn", "").endswith(":root"):
         raise LabError("Use an authorized IAM user or role, not root.")
     if state.get("account") and state["account"] != got.get("Account"):
         raise LabError("Current account differs from the lab's creation account.")
     state["account"] = got["Account"]
-    save(state)
+    if persist:
+        save(state)
 
 
 def stack(state, cleanup=False):
@@ -115,13 +117,15 @@ def setup():
     suffix = uuid.uuid4().hex[:12]
     state = {"owner": OWNER, "name": "dp120-" + suffix, "database": "dp120_" + suffix,
              "region": "us-east-1", "created": int(time.time()), "usage": {}, "executions": [], "queries": []}
-    save(state)
-    identity(state)
+    # Read-only preflight must not strand a persistent experiment record.
+    identity(state, persist=False)
     template = build()
     body = json.dumps(template)
     if len(body.encode()) > 51_200:
         raise LabError("Template exceeds inline CloudFormation limit.")
-    aws(state, "cloudformation", "validate-template", {"TemplateBody": body})
+    aws(state, "cloudformation", "validate-template", {"TemplateBody": body}, persist=False)
+    # Persist BEFORE the first resource-creating request: a timeout can be ambiguous.
+    save(state)
     aws(state, "cloudformation", "create-stack", {
         "StackName": state["name"], "TemplateBody": body, "Capabilities": ["CAPABILITY_IAM"],
         "Parameters": [{"ParameterKey": "LabName", "ParameterValue": state["name"]},
@@ -142,7 +146,7 @@ def upload(state, batch_id):
             extra=["--body", str(HERE / "fixtures/orders.csv")])
     except AwsError as exc:
         if exc.code == "PreconditionFailed":
-            raise LabError("That immutable batch already exists. Reuse it without uploading, or choose a new batch ID.") from None
+            raise LabError("That create-only batch already exists. Reuse it without uploading, or choose a new batch ID.") from None
         raise
     print("UPLOAD PASS: synthetic raw batch created without overwriting an existing batch.")
 
@@ -250,13 +254,13 @@ def cleanup(state):
                 active_queries.append(qid)
         if active_queries or running_executions(state, out, cleanup=True):
             raise LabError("Stop requests sent. Wait for terminal statuses and run cleanup again.")
-        # Lambda's max run time is30s. A stopped workflow may leave its invocation finishing.
+        # Lambda's max run time is 30s. A stopped workflow may leave its invocation finishing.
         if not state.get("cleanup_quiet_since"):
             state["cleanup_quiet_since"] = int(time.time())
             save(state)
-            raise LabError("Writers stopped. Wait40 seconds for in-flight Lambda before running cleanup again.")
+            raise LabError("Writers stopped. Wait 40 seconds for in-flight Lambda before running cleanup again.")
         if time.time() - state["cleanup_quiet_since"] < 40:
-            raise LabError("Wait until the40-second quiet window ends, then run cleanup again.")
+            raise LabError("Wait until the 40-second quiet window ends, then run cleanup again.")
     bucket = state["name"]
     try:
         bucket_tags = aws(state, "s3api", "get-bucket-tagging", {"Bucket": bucket}, cleanup=True)
@@ -307,7 +311,8 @@ def main():
     if not inspection and (state.get("deleting") or state.get("cleanup_quiet_since")):
         raise LabError("Cleanup started. No new writers may be launched.")
     if not inspection and time.time() - state["created"] > 7200:
-        raise LabError("Two-hour experiment window expired. Run cleanup.")
+        print("WARNING: Lab has been open over two hours. Finish promptly and run cleanup. "
+              "Operation caps remain active; 120 minutes is not a deadline.", file=sys.stderr)
     identity(state, cleanup=inspection)
     if inspection:
         {"status": status, "cleanup": cleanup}[args.action](state)

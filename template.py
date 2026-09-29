@@ -38,7 +38,7 @@ def build():
         ("batch_id", "string"), ("order_id", "string"), ("customer_id", "string"),
         ("order_date", "string"), ("country", "string"), ("amount_cents", "bigint")]]
     definition = {
-        "Comment": "Validate a small immutable raw batch, then reconcile it with Athena.",
+        "Comment": "Validate a small lab-preserved, create-only raw batch, then reconcile it with Athena.",
         "StartAt": "Transform", "TimeoutSeconds": 180,
         "States": {
             "Transform": {
@@ -71,7 +71,7 @@ def build():
                     {"Variable": "$.reconciliation.amount", "NumericEqualsPath": "$.accepted_amount_cents"}],
                     "Next": "Succeeded"}], "Default": "Mismatch"},
             "Succeeded": {"Type": "Succeed"},
-            "Mismatch": {"Type": "Fail", "Error": "ReconciliationMismatch", "Cause": "Athena totals differ from the transformation receipt."},
+            "Mismatch": {"Type": "Fail", "Error": "ReconciliationMismatch", "Cause": "Athena totals differ from the Lambda-returned transformation summary."},
             "Failed": {"Type": "Fail", "Error": "BatchFailed", "Cause": "Inspect the failed step; fix the cause before retrying."},
         },
     }
