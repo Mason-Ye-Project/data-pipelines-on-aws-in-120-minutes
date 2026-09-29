@@ -1,0 +1,33 @@
+Data Pipelines on AWS in 120 Minutes — companion code
+=====================================================
+
+Copyright (c) 2026 Mason Ye.
+
+The code, CloudFormation template generator, fixtures, and command
+examples in this repository are licensed under the Zero-Clause BSD (0BSD)
+license; see LICENSE-CODE.txt. That license covers the code only. The
+book's prose, figures, and cover are not licensed here and remain the
+author's copyrighted work.
+
+Trademarks
+----------
+"Amazon S3," "AWS Lambda," "AWS Glue," "Amazon Athena," "AWS Step
+Functions," "AWS CloudFormation," "Amazon CloudWatch," "Amazon Web
+Services," and "AWS" are trademarks of Amazon.com, Inc. or its
+affiliates. This is an independent educational project and is not
+affiliated with, authorized by, endorsed by, or sponsored by
+Amazon.com, Inc. or its affiliates. All product names are used for
+identification only.
+
+AI disclosure
+-------------
+The book's manuscript draft was generated with AI and then revised and
+technically reviewed using AI tools. The companion code was developed and tested
+separately from the prose.
+
+No warranty
+-----------
+Running this code against a real AWS account creates and deletes real
+resources and can incur charges. You are responsible for the account,
+the credentials, the resources, and the costs. See LICENSE-CODE.txt for
+the full disclaimer of warranty.
